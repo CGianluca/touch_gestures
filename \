@@ -1,0 +1,228 @@
+// use input::event::touch::TouchDownEvent;
+use input::{Libinput, LibinputInterface};
+use libc::{O_ACCMODE, O_RDONLY, O_RDWR, O_WRONLY};
+use std::fs::{File, OpenOptions};
+use std::os::unix::{fs::OpenOptionsExt, io::OwnedFd};
+use std::path::Path;
+
+
+use linfa::prelude::*;
+use linfa_linear::LinearRegression;
+use ndarray::{Array1, Array2};
+
+struct Interface;
+
+use input::event::touch::*;
+use input::Event::*;
+// use input::event::touch::*;
+
+impl LibinputInterface for Interface {
+    fn open_restricted(&mut self, path: &Path, flags: i32) -> Result<OwnedFd, i32> {
+        OpenOptions::new()
+            .custom_flags(flags)
+            .read((flags & O_ACCMODE == O_RDONLY) | (flags & O_ACCMODE == O_RDWR))
+            .write((flags & O_ACCMODE == O_WRONLY) | (flags & O_ACCMODE == O_RDWR))
+            .open(path)
+            .map(|file| file.into())
+            .map_err(|err| err.raw_os_error().unwrap())
+    }
+    fn close_restricted(&mut self, fd: OwnedFd) {
+        let _ = File::from(fd);
+    }
+}
+
+pub mod gestures{
+
+    use linfa::prelude::*;
+
+    pub struct Gesture{
+        pending_fingers : i32,
+        number_finger : u32,
+        gesture_type : GestureTypes,
+        movements : Vec<(Vec<f64>, Vec<f64>)>,
+    } 
+    enum GestureTypes{
+       None,
+       SingleFingers,
+       TwoFingers,
+       ThreeFingers,
+       FourFingers,
+       FiveFingers
+    }
+   
+    impl Gesture {
+        pub fn new() -> Self {
+            Gesture{
+                pending_fingers: 0,
+                number_finger: 0,
+                gesture_type: GestureTypes::None,
+                movements: vec![]
+            }
+        }
+
+        pub fn add_finger(&mut self, position : (f64, f64)) -> &Self {
+            self.gesture_type = match self.gesture_type {
+                GestureTypes::None => GestureTypes::SingleFingers,
+                GestureTypes::SingleFingers => GestureTypes::TwoFingers,
+                GestureTypes::TwoFingers => GestureTypes::ThreeFingers,
+                GestureTypes::ThreeFingers => GestureTypes::FourFingers,
+                GestureTypes::FourFingers => GestureTypes::FiveFingers,
+                GestureTypes::FiveFingers => GestureTypes::FiveFingers,
+            };
+            self.pending_fingers += 1;
+            self.number_finger += 1;
+            
+            let m_1 : Vec<f64> = vec![position.0];
+            let m_2 : Vec<f64> = vec![position.1];
+            self.movements.push((m_1, m_2));
+            self
+        }
+
+        pub fn add_move(&mut self, position : (u32, u32), i : usize) -> &Self {
+            self.movements[i].0.push(position.0);
+            self.movements[i].1.push(position.1);
+            self
+        }
+        
+        pub fn process_gesture(&mut self) -> &Self {
+            
+            let y= ndarray::Array1::from_vec(self.movements[0].1.clone());
+            let x = ndarray::Array2::from_shape_vec((self.movements[0].0.len(), 1), self.movements[0].0.clone()).unwrap();
+            let dataset = linfa::Dataset::new(x, y);
+
+            let model = linfa_linear::LinearRegression::new().fit(&dataset).unwrap();
+
+            println!("Slope:     {:.4}", model.params()[0]);
+            println!("Intercept: {:.4}", model.intercept());
+            self
+        }
+
+        pub fn is_finished(&mut self) -> bool {
+            self.pending_fingers == 0
+        }
+        
+        pub fn remove_finger(&mut self) {
+            self.pending_fingers -= 1;
+        }
+        
+        pub fn print(& self) {
+            println!("ciao");
+        }
+
+    }
+    
+
+    use std::fmt::Write;
+    impl std::fmt::Display for Gesture {
+
+        fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+            let mut msg: String = String::from("Gesture is of type: ");
+            match self.gesture_type{
+                GestureTypes::SingleFingers => msg += "SingleFinger",
+                GestureTypes::TwoFingers    => msg += "TwoFinger",
+                GestureTypes::ThreeFingers  => msg += "ThreeFinger",
+                GestureTypes::FourFingers   => msg += "FourFinger",
+                GestureTypes::FiveFingers   => msg += "FiveFinger",
+                _ => {}
+            }
+            msg += "\n\n";
+            
+            let n_pos = self.movements.iter().max_by_key(|p| p.0.len()).expect("Error").0.len();
+            
+            for i in 0..n_pos {
+                for p_v in &self.movements{
+                    // match p_v.get(i){
+                        // Some(&v) => write!(msg, "({:^3}, {:^3})  ", v.0, v.1).unwrap(),
+                        // None => msg+="            ",
+                    // };
+
+                    match p_v.0.get(i){
+                        Some(&v) => write!(msg, "({:^3}, ", v).unwrap(),
+                        None => msg+="      ",
+                    };
+
+                    match p_v.1.get(i){
+                        Some(&v) => write!(msg, "{:^3})  ", v).unwrap(),
+                        None => msg+="      ",
+                    };
+                }                
+                msg += "\n"
+            }
+            
+            println!("{}", msg);
+            Ok(())
+
+        }
+    }
+}
+
+
+
+fn main() {
+    let mut input = Libinput::new_with_udev(Interface);
+    input.udev_assign_seat("seat0").unwrap();
+    
+    let mut gesture : Option<gestures::Gesture> = None;
+    loop {
+        input.dispatch().unwrap();
+        for event in &mut input {
+            match event {
+                Touch(TouchEvent::Down(evt)) => {
+                    // println!("Down: {:?}", evt.slot());
+                    match gesture {
+                       Some(ref mut g) => {
+                            match evt.slot() {
+                                Some(s) => {
+                                    if s>=1 {
+                                        // g.number_fingers += 1;o string
+                                        // g.pending_fingers += 1;
+                                        g.add_finger((evt.x(), evt.y()));
+                                    }
+                                },
+                                None => {},
+                            }
+                       },
+                       None => {
+                            // gesture = Some(Gestures{number_fingers: 1, pending_fingers: 1});
+                            let mut g= gestures::Gesture::new();
+                            g.add_finger((evt.x(), evt.y()));
+                            gesture = Some(g);
+                       }
+                    }
+                },
+                Touch(TouchEvent::Up(evt)) => {
+                    // println!("Up: {:?}", evt.slot())
+                    match gesture {
+                        Some(ref mut g) => {
+                            match evt.slot() {
+                                Some(_s) => {
+                                    // g.pending_fingers -= 1;
+                                    g.remove_finger();
+                                },
+                                None => {},
+                            }
+                            if g.is_finished() {
+                                println!("{}", g);
+                                gesture = None;
+                            }                                
+                       },
+                       None => {},
+                    }
+
+                },
+                Touch(TouchEvent::Motion(evt)) => {
+                    if let Some(ref mut g) = gesture {
+                        g.add_move((evt.x() as u32, evt.y() as u32), evt.slot().expect("Expected slot") as usize);                        
+                    }
+                },
+                Touch(TouchEvent::Cancel(_evt)) => {
+                    // println!("Cancel: {:?}", evt.slot())
+                },
+                Touch(TouchEvent::Frame(_evt)) => {
+                    // println!("Frame");
+                },
+                _ => {}
+            }
+        }
+    }
+}

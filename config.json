@@ -1,0 +1,43 @@
+{
+    "settings" :{
+        "vertical_angle" : 60.0,
+        "horizontal_angle" : 30.0,
+        "error_treshold" : 50.0,
+        "min_num_movements": 25,
+        "hot_gesture": true
+    },
+    "commands" : {
+        "two_fingers" : {
+            "commands" :{
+                "Left" : "",
+                "Top" : "",
+                "Right" : "",
+                "Bottom" : ""
+            }
+        },
+        "three_fingers" : {
+            "commands" : {
+                "Left" : "niri msg action focus-column-right",
+                "Top" : "niri msg action focus-workspace-down",
+                "Right" : "niri msg action focus-column-left",
+                "Bottom" : "niri msg action focus-workspace-up"
+            }
+        },
+        "four_fingers" : {
+            "commands" :{
+                "Left" : "",
+                "Top" : "",
+                "Right" : "",
+                "Bottom" : ""
+            }
+        },
+        "five_fingers" : {
+            "commands" : {
+                "Left" : "",
+                "Top" : "",
+                "Right" : "",
+                "Bottom" : ""
+            }
+        }
+    }
+}
