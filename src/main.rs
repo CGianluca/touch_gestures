@@ -2,9 +2,9 @@ mod gestures;
 mod configuration;
 
 use input::{Libinput, LibinputInterface};
-use libc::{O_ACCMODE, O_RDONLY, O_RDWR, O_WRONLY};
+use libc::{O_ACCMODE, O_RDONLY, O_RDWR, O_WRONLY, poll, pollfd, POLLIN};
 use std::fs::{File, OpenOptions};
-use std::os::unix::{fs::OpenOptionsExt, io::OwnedFd};
+use std::os::unix::{fs::OpenOptionsExt, io::OwnedFd, io::AsRawFd};
 use std::path::Path;
 use serde::Deserialize;
 use std::fs::read_to_string;
@@ -51,6 +51,15 @@ fn main() {
     CONFIGURATION.set(s).expect("Error while setting up the configuration");
 
     loop {
+            // Block until input is available — CPU sleeps between events
+        let fd = input.as_raw_fd();
+        let mut fds = pollfd {
+            fd,
+            events: POLLIN,
+            revents: 0,
+        };
+        unsafe { poll(&mut fds, 1, -1); } // -1 = wait forever
+        
         input.dispatch().unwrap();
         for event in &mut input {
             match event {
