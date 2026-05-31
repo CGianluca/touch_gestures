@@ -1,7 +1,7 @@
 mod gestures;
 mod configuration;
 
-use input::{Libinput, LibinputInterface};
+use input::{Libinput, LibinputInterface, DeviceCapability};
 use libc::{O_ACCMODE, O_RDONLY, O_RDWR, O_WRONLY, poll, pollfd, POLLIN};
 use std::fs::{File, OpenOptions};
 use std::os::unix::{fs::OpenOptionsExt, io::OwnedFd, io::AsRawFd};
@@ -31,9 +31,30 @@ impl LibinputInterface for Interface {
     }
 }
 
+fn find_touch_device() -> Option<Libinput> {
+    for entry in std::fs::read_dir("/dev/input").ok()? {
+        let path = entry.ok()?.path();
+        
+        if !path.file_name()?.to_str()?.starts_with("event") { continue } ;
+        // use a temporary libinput instance to check capabilities
+        let mut input = Libinput::new_from_path(Interface);
+        if let Some(device) = input.path_add_device(path.to_str()?) {
+            if device.has_capability(DeviceCapability::Touch) && !device.has_capability(DeviceCapability::Gesture) {
+                return Some(input);
+            }
+        }
+    }
+    None
+}
+
 fn main() {
-    let mut input = Libinput::new_with_udev(Interface);
-    input.udev_assign_seat("seat0").unwrap();
+    // let mut input = Libinput::new_with_udev(Interface);
+    // input.udev_assign_seat("seat0").unwrap();
+    
+    let mut input = match find_touch_device() {
+        Some(input) => input,
+        None => panic!("Touch device not found, abort.") 
+    };
     
     let mut gesture : Option<gestures::Gesture> = None;
     
